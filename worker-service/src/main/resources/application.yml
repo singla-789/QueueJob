@@ -10,7 +10,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
@@ -34,6 +34,11 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
+
+# ── Worker configuration ──────────────────────────────────────────
+worker:
+  job-service:
+    base-url: http://localhost:8081
 
 server:
   port: 8082

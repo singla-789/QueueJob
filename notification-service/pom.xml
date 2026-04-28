@@ -14,4 +14,13 @@
     <name>Notification Service</name>
     <description>Notification Service module - sends notifications on job events</description>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

@@ -14,4 +14,13 @@
     <name>Job Service</name>
     <description>Job Service module - manages job lifecycle and persistence</description>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>
