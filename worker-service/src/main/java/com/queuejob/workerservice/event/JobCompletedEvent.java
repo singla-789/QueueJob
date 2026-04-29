@@ -6,22 +6,22 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * Mirrors the JobSubmittedEvent from job-service for deserialization.
+ * Event published to {@code jobs.completed} Kafka topic
+ * when a job finishes processing successfully.
+ * Consumed by the notification-service to send email alerts.
  */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class JobSubmittedEvent {
+public class JobCompletedEvent {
 
     private UUID jobId;
     private String type;
     private String payload;
     private String priority;
-    private Integer maxRetries;
-    @Builder.Default
-    private Integer retryCount = 0;
+    private Integer retryCount;
     private LocalDateTime createdAt;
-    private LocalDateTime scheduledAt;
+    private LocalDateTime completedAt;
 }

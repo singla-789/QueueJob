@@ -33,10 +33,10 @@ public class JobKafkaConsumer {
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset) {
 
-        log.info("Received HIGH priority job {} from {}[partition={}, offset={}]",
-                event.getJobId(), topic, partition, offset);
+        log.info("Received HIGH priority job {} from {}[partition={}, offset={}] (retry={})",
+                event.getJobId(), topic, partition, offset, event.getRetryCount());
 
-        processorService.processHighPriority(event);
+        processorService.processHighPriority(event, topic);
     }
 
     @KafkaListener(
@@ -50,10 +50,10 @@ public class JobKafkaConsumer {
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset) {
 
-        log.info("Received MEDIUM priority job {} from {}[partition={}, offset={}]",
-                event.getJobId(), topic, partition, offset);
+        log.info("Received MEDIUM priority job {} from {}[partition={}, offset={}] (retry={})",
+                event.getJobId(), topic, partition, offset, event.getRetryCount());
 
-        processorService.processMediumPriority(event);
+        processorService.processMediumPriority(event, topic);
     }
 
     @KafkaListener(
@@ -67,9 +67,9 @@ public class JobKafkaConsumer {
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset) {
 
-        log.info("Received LOW priority job {} from {}[partition={}, offset={}]",
-                event.getJobId(), topic, partition, offset);
+        log.info("Received LOW priority job {} from {}[partition={}, offset={}] (retry={})",
+                event.getJobId(), topic, partition, offset, event.getRetryCount());
 
-        processorService.processLowPriority(event);
+        processorService.processLowPriority(event, topic);
     }
 }

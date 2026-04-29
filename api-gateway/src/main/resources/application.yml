@@ -1,39 +1,104 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: api-gateway
 
-  datasource:
-    url: jdbc:postgresql://localhost:5432/queuejob_db
-    username: queuejob
-    password: queuejob_secret
-    driver-class-name: org.postgresql.Driver
+  # ── Disable unused auto-configs inherited from parent ────────────
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
 
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: false
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
-
+  # ── Redis (used for rate limiting + API key storage) ─────────────
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
-  kafka:
-    bootstrap-servers: localhost:9092
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-    consumer:
-      group-id: api-gateway-group
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
+  # ── Spring Cloud Gateway routes ─────────────────────────────────
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
 
-server:
-  port: 8080
+      routes:
+        # ── Job Service ────────────────────────────────────────────
+        - id: job-service-jobs
+          uri: ${JOB_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/jobs/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@apiKeyKeyResolver}"
+
+        - id: job-service-admin
+          uri: ${JOB_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/admin/**
+
+        # ── Notification Service ───────────────────────────────────
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/notifications/**
+
+        # ── Worker Service ─────────────────────────────────────────
+        - id: worker-service
+          uri: ${WORKER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/workers/**
+
+      # ── CORS configuration (development) ─────────────────────────
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            exposedHeaders:
+              - X-RateLimit-Remaining
+              - X-RateLimit-Burst-Capacity
+              - X-RateLimit-Replenish-Rate
+            allowCredentials: false
+            maxAge: 3600
+
+# ── Actuator endpoints ──────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      enabled: true
+    health:
+      show-details: when-authorized
+
+# ── Gateway API Key config ──────────────────────────────────────────
+gateway:
+  api-key:
+    enabled: ${API_KEY_ENABLED:true}
+    header-name: X-API-Key
+    # Paths excluded from API key validation
+    excluded-paths:
+      - /actuator/**
+
+# ── Logging ─────────────────────────────────────────────────────────
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    com.queuejob.apigateway: DEBUG

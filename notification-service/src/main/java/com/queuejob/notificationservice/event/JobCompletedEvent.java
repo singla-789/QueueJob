@@ -1,4 +1,4 @@
-package com.queuejob.jobservice.event;
+package com.queuejob.notificationservice.event;
 
 import lombok.*;
 
@@ -6,22 +6,21 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * Event published to Kafka when a job is submitted.
+ * Event consumed from the {@code jobs.completed} Kafka topic.
+ * Published by the worker-service when a job finishes successfully.
  */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class JobSubmittedEvent {
+public class JobCompletedEvent {
 
     private UUID jobId;
     private String type;
     private String payload;
     private String priority;
-    private Integer maxRetries;
-    @Builder.Default
-    private Integer retryCount = 0;
+    private Integer retryCount;
     private LocalDateTime createdAt;
-    private LocalDateTime scheduledAt;
+    private LocalDateTime completedAt;
 }

@@ -31,6 +31,7 @@ public class JobKafkaProducer {
                 .payload(job.getPayload())
                 .priority(job.getPriority().name())
                 .maxRetries(job.getMaxRetries())
+                .retryCount(0)
                 .createdAt(job.getCreatedAt())
                 .scheduledAt(job.getScheduledAt())
                 .build();

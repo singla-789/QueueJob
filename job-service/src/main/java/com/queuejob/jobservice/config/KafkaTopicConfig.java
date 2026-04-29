@@ -11,6 +11,8 @@ public class KafkaTopicConfig {
     public static final String TOPIC_HIGH_PRIORITY   = "jobs.high-priority";
     public static final String TOPIC_MEDIUM_PRIORITY = "jobs.medium-priority";
     public static final String TOPIC_LOW_PRIORITY    = "jobs.low-priority";
+    public static final String TOPIC_DEAD_LETTER     = "jobs.dead-letter";
+    public static final String TOPIC_JOBS_COMPLETED  = "jobs.completed";
 
     @Bean
     public NewTopic highPriorityTopic() {
@@ -32,6 +34,22 @@ public class KafkaTopicConfig {
     public NewTopic lowPriorityTopic() {
         return TopicBuilder.name(TOPIC_LOW_PRIORITY)
                 .partitions(2)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic deadLetterTopic() {
+        return TopicBuilder.name(TOPIC_DEAD_LETTER)
+                .partitions(2)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic jobsCompletedTopic() {
+        return TopicBuilder.name(TOPIC_JOBS_COMPLETED)
+                .partitions(3)
                 .replicas(1)
                 .build();
     }

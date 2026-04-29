@@ -15,6 +15,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - queuejob-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U queuejob -d queuejob_db"]
       interval: 10s
@@ -32,6 +34,8 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - queuejob-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -39,38 +43,220 @@ services:
       retries: 5
 
   # ──────────────────────────────────────────────
-  # Kafka (KRaft mode – no ZooKeeper needed)
+  # Zookeeper
+  # ──────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    container_name: queuejob-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    networks:
+      - queuejob-net
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ──────────────────────────────────────────────
+  # Kafka (Zookeeper mode)
   # ──────────────────────────────────────────────
   kafka:
-    image: apache/kafka:3.9.0
+    image: confluentinc/cp-kafka:7.7.1
     container_name: queuejob-kafka
     restart: unless-stopped
     environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     ports:
       - "9092:9092"
     volumes:
-      - kafka_data:/tmp/kraft-combined-logs
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - queuejob-net
+    depends_on:
+      zookeeper:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 30s
 
+  # ──────────────────────────────────────────────
+  # Job Service (port 8081)
+  # ──────────────────────────────────────────────
+  job-service:
+    build:
+      context: .
+      dockerfile: job-service/Dockerfile
+    container_name: queuejob-job-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/queuejob_db
+      SPRING_DATASOURCE_USERNAME: queuejob
+      SPRING_DATASOURCE_PASSWORD: queuejob_secret
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+    networks:
+      - queuejob-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  # ──────────────────────────────────────────────
+  # Worker Service (port 8082)
+  # ──────────────────────────────────────────────
+  worker-service:
+    build:
+      context: .
+      dockerfile: worker-service/Dockerfile
+    container_name: queuejob-worker-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/queuejob_db
+      SPRING_DATASOURCE_USERNAME: queuejob
+      SPRING_DATASOURCE_PASSWORD: queuejob_secret
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      WORKER_JOB_SERVICE_BASE_URL: http://job-service:8081
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+    networks:
+      - queuejob-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      job-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  # ──────────────────────────────────────────────
+  # Notification Service (port 8083)
+  # ──────────────────────────────────────────────
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: queuejob-notification-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/queuejob_db
+      SPRING_DATASOURCE_USERNAME: queuejob
+      SPRING_DATASOURCE_PASSWORD: queuejob_secret
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-noreply@queuejob.com}
+      MAIL_TO_DEFAULT: ${MAIL_TO_DEFAULT:-admin@queuejob.com}
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+    networks:
+      - queuejob-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  # ──────────────────────────────────────────────
+  # API Gateway (port 8080)
+  # ──────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: queuejob-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JOB_SERVICE_URL: http://job-service:8081
+      WORKER_SERVICE_URL: http://worker-service:8082
+      NOTIFICATION_SERVICE_URL: http://notification-service:8083
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+    networks:
+      - queuejob-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      job-service:
+        condition: service_healthy
+      worker-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+networks:
+  queuejob-net:
+    driver: bridge
+
 volumes:
   postgres_data:
   redis_data:
+  zookeeper_data:
+  zookeeper_log:
   kafka_data:

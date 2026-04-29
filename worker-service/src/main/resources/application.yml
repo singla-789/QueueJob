@@ -39,6 +39,8 @@ spring:
 worker:
   job-service:
     base-url: http://localhost:8081
+  retry:
+    max-backoff-seconds: 60    # cap exponential backoff at 60s
 
 server:
   port: 8082
