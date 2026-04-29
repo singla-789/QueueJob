@@ -387,7 +387,3 @@ queueJob/
 | `MAIL_TO_DEFAULT` | `admin@queuejob.com` | Default recipient |
 
 ---
-
-## License
-
-MIT
